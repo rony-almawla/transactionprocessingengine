@@ -1,18 +1,37 @@
-// src/server.js (CommonJS version)
-const Fastify = require('fastify');
-const dotenv = require('dotenv');
+import fastify, { FastifyError } from 'fastify';
+import dotenv from 'dotenv';
+
+import prismaPlugin from'./plugins/prisma.js ';
+import jwtPlugin from'./plugins/jwt.js ';
+import redisPlugin from'./plugins/redis.js ';
+
+import authRoutes from'./routes/auth.js ';
+import userRoutes from'./routes/user.js ';
 
 dotenv.config();
-
 const fastify = Fastify({ logger: true });
-const PORT = process.env.PORT || 4000;
 
-fastify.get('/', async () => ({ message: 'Server is running!' }));
+// Register plugins
+fastify.register(prismaPlugin);
+fastify.register(jwtPlugin);
+fastify.register(redisPlugin);
 
-fastify.listen({ port: PORT }, (err, address) => {
-  if (err) {
-    fastify.log.error(err);
-    process.exit(1);
+// Register routes
+fastify.register(authRoutes, { prefix: '/auth' });
+fastify.register(userRoutes, { prefix: '/users' });
+
+//healtch check route
+fastify.get('Health', async(__, reply)=>{
+  try{
+    await fastify.prisma.$queryRaw`SELECT 1`;
+    reply.send({ status: 'ok', databse: 'connected' });
+  } catch (error) {
+    reply.status(500).send({ status: 'error', database: 'disconnected, error:err.message' });
   }
-  fastify.log.info(`🚀 Server running at ${address}`);
+});
+
+//to start the server of my application
+fastify.listen({ port: process.env.PORT || 4000 }, (err, address) => {
+  if (err) throw err;
+  fastify.log.info(`Server running at ${address}`);
 });

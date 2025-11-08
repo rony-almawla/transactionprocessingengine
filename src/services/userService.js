@@ -34,6 +34,14 @@ export const getAllUsers = async (fastify) => {
     return users;
 };
 
+export const getUserById = async (fastify, id) => {
+  const user = await fastify.prisma.user.findUnique({
+    where: { id },
+    select: { id: true, email: true, role: true, createdAt: true },
+  });
+  return user;
+};
+
 export const updateUser = async (fastify, id, data, currentUserRole) => {
     if (data.password) data.password = await bcrypt.hash(data.password, 10);
     if (data.role && currentUserRole !== 'ADMIN') {

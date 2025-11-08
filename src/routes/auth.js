@@ -3,7 +3,7 @@ import {createUser, authenticateUser} from '../services/userService.js';
 
 export default async function authRoutes(fastify){
     //for sign up authentication
-    fastify.post('/auth/signup', async (request, reply) => {
+    fastify.post('/signup', async (request, reply) => {
         const { error, value } = signupSchema.validate(request.body);
     if (error) return reply.code(400).send({ error: error.details.map(e => e.message) });
 
@@ -16,7 +16,7 @@ export default async function authRoutes(fastify){
     });
 
     //for login authentication
-    fastify.post('/auth/login', async (request, reply) => {
+    fastify.post('/login', async (request, reply) => {
         const { error, value } = loginSchema.validate(request.body);
     if (error) return reply.code(400).send({ error: error.details.map(e => e.message) });   
     try {

@@ -1,32 +1,28 @@
-import fastify, { FastifyError } from 'fastify';
+import Fastify from 'fastify';
 import dotenv from 'dotenv';
 
-import prismaPlugin from'./plugins/prisma.js ';
-import jwtPlugin from'./plugins/jwt.js ';
-import redisPlugin from'./plugins/redis.js ';
+import prismaPlugin from './plugins/prisma.js';
+import jwtPlugin from './plugins/jwt.js';
 
-import authRoutes from'./routes/auth.js ';
-import userRoutes from'./routes/user.js ';
+import authRoutes from './routes/auth.js';
+import userRoutes from './routes/users.js';
 
 dotenv.config();
 const fastify = Fastify({ logger: true });
 
-// Register plugins
 fastify.register(prismaPlugin);
 fastify.register(jwtPlugin);
-fastify.register(redisPlugin);
 
-// Register routes
 fastify.register(authRoutes, { prefix: '/auth' });
 fastify.register(userRoutes, { prefix: '/users' });
 
 //healtch check route
-fastify.get('Health', async(__, reply)=>{
-  try{
+fastify.get('/health', async(_, reply) => {
+  try {
     await fastify.prisma.$queryRaw`SELECT 1`;
-    reply.send({ status: 'ok', databse: 'connected' });
-  } catch (error) {
-    reply.status(500).send({ status: 'error', database: 'disconnected, error:err.message' });
+    reply.send({ status: 'ok', database: 'connected' });
+  } catch (err) {
+    reply.code(500).send({ status: 'error', database: 'disconnected', error: err.message });
   }
 });
 

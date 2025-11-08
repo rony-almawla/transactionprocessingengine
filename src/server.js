@@ -6,6 +6,7 @@ import jwtPlugin from './plugins/jwt.js';
 
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
+import transactionRoutes from './routes/transactions.js'; // import transactions
 
 dotenv.config();
 const fastify = Fastify({ logger: true });
@@ -15,6 +16,7 @@ fastify.register(jwtPlugin);
 
 fastify.register(authRoutes, { prefix: '/auth' });
 fastify.register(userRoutes, { prefix: '/users' });
+fastify.register(transactionRoutes); // register transactions
 
 //healtch check route
 fastify.get('/health', async(_, reply) => {

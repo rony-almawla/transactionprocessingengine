@@ -1,75 +1,75 @@
-import { checkAllRules } from "../utils/fraudRules.js";
-import { checkRateLimit } from "../utils/rateLimiter.js";
-import { transactionSchema } from "../utils/transactionValidation.js";
+import { checkAllRules } from '../utils/fraudRules.js';
+import { checkRateLimit } from '../utils/rateLimiter.js';
+import { transactionSchema } from '../utils/transactionValidation.js';
 
-export const processTransactions = async (fastify, transactions) => {
-    if (!Array.isArray(transactions)) transactions = [transactions];
+export const processTransactions = async (fastify, transactionsInput) => {
+  const txs = Array.isArray(transactionsInput) ? transactionsInput : [transactionsInput];
 
-    const results = await Promise.allSettled(transactions.map(async (tx) => {
-        try {
-            const { error, value } = transactionSchema.validate(tx);
-            if (error) throw new Error(error.details.map(d => d.message).join(", "));
+  const settled = await Promise.allSettled(
+    txs.map(async (rawTx) => {
+      const tx = { ...rawTx, currency: rawTx.currency?.toUpperCase() };
+      try {
+        const { error, value } = transactionSchema.validate(tx, { convert: true });
+        if (error) throw new Error(error.details.map((d) => d.message).join(', '));
 
-            const rateOk = await checkRateLimit(fastify, value.source);
-            if (!rateOk) throw new Error("Rate limit exceeded");
-
-            const fraudReasons = await checkAllRules(fastify, value);
-
-            const createdTx = await fastify.prisma.transaction.create({
-                data: {
-                    ...value
-                }
-            });
-
-            if (fraudReasons.length) {
-                for (const reason of fraudReasons) {
-                    await fastify.prisma.fraudulentTransaction.create({
-                        data: { txId: value.txId, reason }
-                    });
-                }
-            }
-
-            return { success: true, tx: createdTx, fraudReasons };
-
-        } catch (err) {
-            return { success: false, error: err.message, tx };
+        const rate = await checkRateLimit(fastify, value.source);
+        if (!rate.ok) {
+          return { success: false, txId: value.txId, code: 429, error: 'Rate limit exceeded', details: rate };
         }
-    }));
 
-    const successCount = results.filter(r => r.status === "fulfilled" && r.value.success).length;
-    const failCount = results.length - successCount;
+        const fraudReasons = await checkAllRules(fastify, value);
 
-    return {
-        total: results.length,
-        success: successCount,
-        failed: failCount,
-        details: results.map(r => r.value || r.reason)
-    };
+        const created = await fastify.prisma.transaction.create({ data: value });
+        fastify.log.info({ txId: created.txId, source: created.source }, 'Transaction saved');
+
+        for (const reason of fraudReasons) {
+          await fastify.prisma.fraudulentTransaction.create({ data: { txId: created.txId, reason } });
+          fastify.log.warn({ txId: created.txId, reason }, 'Transaction flagged fraudulent');
+        }
+
+        return { success: true, tx: created, fraudReasons };
+      } catch (err) {
+        fastify.log.error({ err, txId: tx.txId }, 'Transaction failed');
+        return { success: false, txId: tx.txId, error: err.message };
+      }
+    })
+  );
+
+  const results = settled.map((r) => (r.status === 'fulfilled' ? r.value : { success: false, error: r.reason }));
+  const response = {
+    total: results.length,
+    success: results.filter((r) => r.success).length,
+    failed: results.filter((r) => !r.success).length,
+    details: results,
+  };
+
+  if (results.some((r) => r.code === 429)) response.rateLimit = true;
+
+  return response;
 };
 
 export const getAnalytics = async (fastify) => {
-    const transactions = await fastify.prisma.transaction.findMany();
+  const txs = await fastify.prisma.transaction.findMany();
 
-    const volumeBySource = transactions.reduce((acc, tx) => {
-        acc[tx.source] = (acc[tx.source] || 0) + tx.amount;
-        return acc;
-    }, {});
+  const volumeBySource = {};
+  const destTotals = {};
+  const txPerHour = {};
 
-    const avgAmountByDest = transactions.reduce((acc, tx) => {
-        if (!acc[tx.destination]) acc[tx.destination] = { total: 0, count: 0 };
-        acc[tx.destination].total += tx.amount;
-        acc[tx.destination].count++;
-        return acc;
-    }, {});
-    for (const dest in avgAmountByDest) {
-        avgAmountByDest[dest] = avgAmountByDest[dest].total / avgAmountByDest[dest].count;
-    }
+  for (const tx of txs) {
+    volumeBySource[tx.source] = (volumeBySource[tx.source] || 0) + tx.amount;
 
-    const txPerHour = transactions.reduce((acc, tx) => {
-        const hour = tx.timestamp.getUTCHours();
-        acc[hour] = (acc[hour] || 0) + 1;
-        return acc;
-    }, {});
+    if (!destTotals[tx.destination]) destTotals[tx.destination] = { total: 0, count: 0 };
+    destTotals[tx.destination].total += tx.amount;
+    destTotals[tx.destination].count++;
 
-    return { volumeBySource, avgAmountByDest, txPerHour };
+    const hour = new Date(tx.timestamp).getUTCHours();
+    txPerHour[hour] = (txPerHour[hour] || 0) + 1;
+  }
+
+  const avgAmountByDest = {};
+  for (const [dest, data] of Object.entries(destTotals)) {
+    avgAmountByDest[dest] = data.total / data.count;
+  }
+
+  return { volumeBySource, avgAmountByDest, txPerHour };
 };

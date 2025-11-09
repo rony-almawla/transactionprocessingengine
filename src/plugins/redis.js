@@ -1,18 +1,31 @@
-import fp from "fastify-plugin";
-import Redis from "ioredis";
+import fp from 'fastify-plugin';
+import Redis from 'ioredis';
 
 export default fp(async (fastify, opts) => {
-    const redis = new Redis({
-        host: opts.host || '127.0.0.1',
-        port: opts.port || 6379,
-    });
+  const url = opts.url || process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 
-    redis.on('error', (err) => fastify.log.error('Redis error:', err));
+  let client = null;
+  try {
+    client = new Redis(url);
 
-    fastify.decorate("redis", redis);
+    client.on('connect', () => fastify.log.info('Redis connected'));
+    client.on('ready', () => fastify.log.info('Redis ready'));
+    client.on('error', (err) => fastify.log.error({ err }, 'Redis error'));
+  } catch (err) {
+    fastify.log.warn({ err }, 'Failed to initialize Redis');
+    client = null;
+  }
 
-    fastify.addHook('onClose', async (instance, done) => {
-        await redis.quit();
-        done();
-    });
+  fastify.decorate('redis', client);
+
+  fastify.addHook('onClose', async (_, done) => {
+    if (client) {
+      try {
+        await client.quit();
+      } catch (err) {
+        fastify.log.warn({ err }, 'Error closing Redis connection');
+      }
+    }
+    done();
+  });
 });

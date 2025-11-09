@@ -1,14 +1,23 @@
 export function calculateAnalytics(transactions) {
   const volumeBySource = {};
-  const avgAmountByDest = {};
+  const destTotals = {};
   const txPerHour = {};
 
-  transactions.forEach(tx => {
+  for (const tx of transactions) {
     volumeBySource[tx.source] = (volumeBySource[tx.source] || 0) + tx.amount;
-    avgAmountByDest[tx.destination] = tx.amount; // simplified for single tx
-    const hour = new Date(tx.createdAt).getUTCHours();
+
+    if (!destTotals[tx.destination]) destTotals[tx.destination] = { total: 0, count: 0 };
+    destTotals[tx.destination].total += tx.amount;
+    destTotals[tx.destination].count++;
+
+    const hour = new Date(tx.timestamp).getUTCHours(); // FIXED: use timestamp
     txPerHour[hour] = (txPerHour[hour] || 0) + 1;
-  });
+  }
+
+  const avgAmountByDest = {};
+  for (const [dest, data] of Object.entries(destTotals)) {
+    avgAmountByDest[dest] = data.total / data.count;
+  }
 
   return { volumeBySource, avgAmountByDest, txPerHour };
 }
